@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Digital RF — Beamforming & Propagation Loss</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg: #04080f;
+  --teal: #00ffe0;
+  --teal2: #00b89c;
+  --amber: #ffb300;
+  --red: #ff3d5a;
+  --blue: #4488ff;
+  --purple: #9966ff;
+  --text: #c8d8e8;
+  --dim: #2a3f55;
+  --mono: 'Space Mono', monospace;
+  --display: 'Syne', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; background: var(--bg); overflow: hidden; }
+
+body {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+/* Header */
+.hdr {
+  padding: 14px 28px 10px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid #0a1a2a;
+  flex-shrink: 0;
+}
+.hdr-title {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--teal);
+  letter-spacing: .02em;
+}
+.hdr-sub {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+/* Controls bar */
+.cbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 8px 28px;
+  background: #060d16;
+  border-bottom: 1px solid #0a1a2a;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.ctrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: #4a7090;
+}
+.ctrl label { white-space: nowrap; letter-spacing: .06em; text-transform: uppercase; }
+.ctrl span { color: var(--teal); font-weight: 700; min-width: 52px; }
+input[type=range] {
+  width: 90px;
+  accent-color: var(--teal);
+  height: 2px;
+  cursor: pointer;
+}
+.btn {
+  padding: 5px 14px;
+  background: transparent;
+  border: 1px solid var(--teal2);
+  color: var(--teal);
+  font-family: var(--mono);
+  font-size: 10px;
+  cursor: pointer;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  transition: background .15s;
+  border-radius: 2px;
+}
+.btn:hover { background: #00ffe015; }
+.btn.active { background: #00ffe020; border-color: var(--teal); }
+
+/* Main canvas area */
+.stage {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr auto;
+  gap: 1px;
+  background: #060d16;
+  min-height: 0;
+}
+.panel {
+  background: var(--bg);
+  position: relative;
+  overflow: hidden;
+}
+.panel-label {
+  position: absolute;
+  top: 10px; left: 14px;
+  font-size: 8px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  z-index: 2;
+  pointer-events: none;
+}
+canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Metrics bar */
+.mbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  background: #060d16;
+  height: 52px;
+  flex-shrink: 0;
+}
+.mcard {
+  flex: 1;
+  background: #060d16;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 16px;
+  border-top: 1px solid #0a1a2a;
+}
+.mcard-lbl { font-size: 8px; color: var(--dim); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 2px; }
+.mcard-val { font-size: 14px; font-weight: 700; font-family: var(--display); color: var(--teal); }
+.mcard-val.warn { color: var(--amber); }
+.mcard-val.bad  { color: var(--red); }
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div>
+    <div class="hdr-title">Digital RF — Beamforming &amp; Propagation Loss</div>
+    <div class="hdr-sub" style="margin-top:2px">Array Factor · Friis Transmission · AWGN Channel · EE117</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button class="btn active" id="btnAnim" onclick="toggleAnim()">⏸ Pause</button>
+  </div>
+</div>
+
+<div class="cbar">
+  <div class="ctrl">
+    <label>Elements N</label>
+    <input type="range" id="sN" min="1" max="32" value="8" step="1"/>
+    <span id="vN">8</span>
+  </div>
+  <div class="ctrl">
+    <label>Steer θ₀</label>
+    <input type="range" id="sTheta" min="-70" max="70" value="0" step="1"/>
+    <span id="vTheta">0°</span>
+  </div>
+  <div class="ctrl">
+    <label>Freq f_c</label>
+    <input type="range" id="sFC" min="0.5" max="28" value="3.5" step="0.5"/>
+    <span id="vFC">3.5 GHz</span>
+  </div>
+  <div class="ctrl">
+    <label>Tx Power</label>
+    <input type="range" id="sPt" min="0" max="43" value="23" step="1"/>
+    <span id="vPt">23 dBm</span>
+  </div>
+  <div class="ctrl">
+    <label>Rx Gain</label>
+    <input type="range" id="sGr" min="0" max="30" value="3" step="1"/>
+    <span id="vGr">3 dBi</span>
+  </div>
+</div>
+
+<div class="stage">
+
+  <!-- Left: Wavefront + beamforming -->
+  <div class="panel" id="panelLeft">
+    <div class="panel-label">Array Factor  ·  Wavefront Interference</div>
+    <canvas id="cLeft"></canvas>
+  </div>
+
+  <!-- Right: Propagation loss field -->
+  <div class="panel" id="panelRight">
+    <div class="panel-label">Friis Path Loss  ·  Received Power Field</div>
+    <canvas id="cRight"></canvas>
+  </div>
+
+  <!-- Metrics -->
+  <div class="mbar">
+    <div class="mcard"><div class="mcard-lbl">Array Gain</div><div class="mcard-val" id="mAG">—</div></div>
+    <div class="mcard"><div class="mcard-lbl">FSPL @ 1km</div><div class="mcard-val" id="mFSPL">—</div></div>
+    <div class="mcard"><div class="mcard-lbl">Rx Power @ 1km</div><div class="mcard-val" id="mPR">—</div></div>
+    <div class="mcard"><div class="mcard-lbl">SNR @ 1km</div><div class="mcard-val" id="mSNR">—</div></div>
+    <div class="mcard"><div class="mcard-lbl">Noise Floor</div><div class="mcard-val" id="mNF">—</div></div>
+    <div class="mcard"><div class="mcard-lbl">HPBW</div><div class="mcard-val" id="mHPBW">—</div></div>
+    <div class="mcard"><div class="mcard-lbl">λ wavelength</div><div class="mcard-val" id="mLambda">—</div></div>
+    <div class="mcard"><div class="mcard-lbl">Phase shift Δψ</div><div class="mcard-val" id="mPsi">—</div></div>
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════
+//  STATE
+// ═══════════════════════════════
+let animating = true;
+let t = 0;
+let raf;
+
+function getParams() {
+  return {
+    N:     parseInt(document.getElementById('sN').value),
+    theta0:parseFloat(document.getElementById('sTheta').value) * Math.PI/180,
+    fc:    parseFloat(document.getElementById('sFC').value),
+    pt:    parseFloat(document.getElementById('sPt').value),
+    gr:    parseFloat(document.getElementById('sGr').value),
+  };
+}
+
+// ═══════════════════════════════
+//  MATH
+// ═══════════════════════════════
+function arrayFactor(theta, N, dl, theta0) {
+  // dl = d/lambda = 0.5
+  const psi = 2*Math.PI*dl*(Math.sin(theta) - Math.sin(theta0));
+  if (Math.abs(psi) < 1e-10) return N;
+  return Math.abs(Math.sin(N*psi/2) / Math.sin(psi/2));
+}
+
+function friisLoss(fc, dist) {
+  // returns FSPL in dB
+  const fcHz = fc*1e9;
+  return 20*Math.log10(dist) + 20*Math.log10(fcHz) - 147.55;
+}
+
+function db2lin(db) { return Math.pow(10, db/10); }
+function lin2db(x)  { return 10*Math.log10(Math.max(x,1e-30)); }
+
+// ═══════════════════════════════
+//  CANVAS SETUP
+// ═══════════════════════════════
+const DPR = window.devicePixelRatio || 1;
+
+function resizeCanvas(canvas) {
+  const W = canvas.parentElement.clientWidth;
+  const H = canvas.parentElement.clientHeight;
+  if (canvas.width !== W*DPR || canvas.height !== H*DPR) {
+    canvas.width  = W*DPR;
+    canvas.height = H*DPR;
+    canvas.style.width  = W+'px';
+    canvas.style.height = H+'px';
+  }
+  return {W, H, ctx: canvas.getContext('2d')};
+}
+
+// ═══════════════════════════════
+//  LEFT PANEL — wavefronts + polar
+// ═══════════════════════════════
+function drawLeft(t) {
+  const cv = document.getElementById('cLeft');
+  const {W, H, ctx} = resizeCanvas(cv);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  // Background
+  ctx.fillStyle = '#04080f';
+  ctx.fillRect(0,0,W,H);
+
+  const p = getParams();
+  const {N, theta0} = p;
+  const dl = 0.5; // d/lambda
+
+  // Array sits at left side
+  const arrX = 60;
+  const spacing = Math.min(38, (H-80)/(N+1));
+  const arrH = (N-1)*spacing;
+  const arrY0 = H/2 - arrH/2;
+
+  // ── Wavefronts ──
+  // Each element emits circular waves. Phase delay for steering.
+  const waveSpeed = 120; // px per second
+  const waveperiod = 2.2; // seconds
+
+  for (let n=0; n<N; n++) {
+    const ex = arrX;
+    const ey = arrY0 + n*spacing;
+    // Phase delay for this element
+    const phaseDelay = n * dl * Math.sin(theta0) * waveperiod;
+
+    for (let k=0; k<5; k++) {
+      const age = ((t - phaseDelay + k*waveperiod) % waveperiod + waveperiod) % waveperiod;
+      const r = age * waveSpeed;
+      if (r < 2) continue;
+
+      const opacity = Math.max(0, 0.55*(1 - age/waveperiod));
+      const hue = 180; // teal
+
+      ctx.beginPath();
+      ctx.arc(ex, ey, r, -Math.PI/2, Math.PI/2); // right hemisphere only
+      ctx.strokeStyle = `hsla(${hue},100%,65%,${opacity})`;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+  }
+
+  // ── Antenna elements ──
+  for (let n=0; n<N; n++) {
+    const ex = arrX;
+    const ey = arrY0 + n*spacing;
+
+    // Element body
+    ctx.fillStyle = '#0d2035';
+    ctx.strokeStyle = '#00ffe0';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(ex-7, ey-10, 14, 20, 2);
+    ctx.fill(); ctx.stroke();
+
+    // Antenna stem
+    ctx.strokeStyle = '#00ffe0';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(ex, ey-10); ctx.lineTo(ex, ey-20);
+    ctx.moveTo(ex-6, ey-20); ctx.lineTo(ex+6, ey-20);
+    ctx.moveTo(ex-4, ey-25); ctx.lineTo(ex+4, ey-25);
+    ctx.stroke();
+
+    // Phase shift label for first/last
+    if (n===0 || n===N-1) {
+      const psiDeg = -(n * 360 * dl * Math.sin(theta0)).toFixed(0);
+      ctx.fillStyle = '#2a4a6a';
+      ctx.font = '8px Space Mono, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`n=${n}`, ex+10, ey+4);
+    }
+  }
+
+  // spacing brace
+  if (N > 1) {
+    ctx.strokeStyle = '#1a3050';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(arrX-18, arrY0);
+    ctx.lineTo(arrX-14, arrY0);
+    ctx.lineTo(arrX-14, arrY0+spacing);
+    ctx.lineTo(arrX-18, arrY0+spacing);
+    ctx.stroke();
+    ctx.fillStyle = '#2a4060';
+    ctx.font = '8px Space Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('d=λ/2', arrX-28, arrY0+spacing/2+3);
+  }
+
+  // ── Polar beam pattern (right side) ──
+  const poleCX = W - 130;
+  const poleCY = H/2;
+  const poleR  = Math.min(110, H/2 - 30);
+
+  // Grid
+  [0.25,0.5,0.75,1.0].forEach(r => {
+    ctx.beginPath();
+    ctx.arc(poleCX, poleCY, poleR*r, 0, Math.PI*2);
+    ctx.strokeStyle = '#0d1f30';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  });
+  [-90,-60,-30,0,30,60,90].forEach(a => {
+    const rad = (a-90)*Math.PI/180;
+    ctx.beginPath();
+    ctx.moveTo(poleCX, poleCY);
+    ctx.lineTo(poleCX+poleR*Math.cos(rad), poleCY+poleR*Math.sin(rad));
+    ctx.strokeStyle = '#0d1f30';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+    ctx.fillStyle = '#2a4060';
+    ctx.font = '8px Space Mono,monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(a+'°', poleCX+(poleR+14)*Math.cos(rad), poleCY+(poleR+14)*Math.sin(rad)+3);
+  });
+
+  // Beam pattern
+  const AFmax = arrayFactor(theta0, N, dl, theta0);
+  ctx.beginPath();
+  let started = false;
+  for (let deg=-90; deg<=90; deg+=0.5) {
+    const rad = deg*Math.PI/180;
+    const af  = arrayFactor(rad, N, dl, theta0);
+    const r   = (af/AFmax)*poleR;
+    const px  = poleCX + r*Math.sin(rad); // x = sin for horizontal
+    const py  = poleCY - r*Math.cos(rad); // y = -cos for upward
+    if (!started) { ctx.moveTo(px,py); started=true; } else ctx.lineTo(px,py);
+  }
+  ctx.strokeStyle = '#00ffe0';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(0,255,224,0.07)';
+  ctx.fill();
+
+  // Steer direction
+  const sx = poleCX + poleR*Math.sin(theta0);
+  const sy = poleCY - poleR*Math.cos(theta0);
+  ctx.strokeStyle = '#ffb300';
+  ctx.lineWidth = 1.2;
+  ctx.setLineDash([5,4]);
+  ctx.beginPath();
+  ctx.moveTo(poleCX,poleCY);
+  ctx.lineTo(sx,sy);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#ffb300';
+  ctx.beginPath(); ctx.arc(sx,sy,3,0,Math.PI*2); ctx.fill();
+
+  // Beam direction wire from array to polar
+  ctx.strokeStyle = '#ffb30030';
+  ctx.lineWidth = 0.5;
+  ctx.setLineDash([3,6]);
+  ctx.beginPath();
+  ctx.moveTo(arrX, H/2);
+  ctx.lineTo(poleCX-poleR-10, poleCY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Label
+  ctx.fillStyle = '#2a5070';
+  ctx.font = '8px Space Mono,monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('|AF(θ)|', poleCX, poleCY+poleR+20);
+}
+
+// ═══════════════════════════════
+//  RIGHT PANEL — power field
+// ═══════════════════════════════
+// We render power as a 2D field using ImageData for performance
+let fieldCache = null;
+let fieldParams = null;
+
+function drawRight(t) {
+  const cv = document.getElementById('cRight');
+  const {W, H, ctx} = resizeCanvas(cv);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  ctx.fillStyle = '#04080f';
+  ctx.fillRect(0,0,W,H);
+
+  const p = getParams();
+  const {N, theta0, fc, pt, gr} = p;
+  const dl = 0.5;
+  const AFmax = arrayFactor(theta0, N, dl, theta0);
+
+  // Array at left edge
+  const arrX = 30;
+  const pixPerKm = (W - arrX - 20) / 3.0; // show 3km
+
+  // Draw power field using pixel sampling (every 4px for performance)
+  const step = 4;
+  for (let px=arrX; px<W-10; px+=step) {
+    for (let py=10; py<H-10; py+=step) {
+      const dist_px = px - arrX;
+      const dist_m  = (dist_px / pixPerKm) * 1000;
+      if (dist_m < 1) continue;
+
+      const dy = py - H/2;
+      const angle = Math.atan2(dist_px, -dy) - Math.PI/2;
+      const theta = Math.atan2(dy, dist_px); // angle from horizontal
+
+      // Array factor at this angle
+      const af = arrayFactor(theta, N, dl, theta0) / AFmax;
+
+      // Friis path loss
+      const fspl = friisLoss(fc, dist_m);
+      const arrayGainDb = lin2db(N);
+      const pr_dbm = pt + 3 + gr + arrayGainDb - fspl; // 3dBi Tx gain
+      const noiseFloor = -174 + 10*Math.log10(20e6) + 7; // -87 dBm approx
+      const snr = pr_dbm - noiseFloor;
+
+      // Intensity: combine AF and SNR
+      const snrNorm = Math.max(0, Math.min(1, (snr + 20) / 60));
+      const intensity = af * af * snrNorm;
+
+      if (intensity < 0.005) continue;
+
+      // Color: teal at high power, amber at medium, red at low (relative to AF peak)
+      let r,g,b;
+      if (intensity > 0.5) {
+        // teal to white
+        const f = (intensity - 0.5)*2;
+        r = Math.floor(0  + f*255);
+        g = Math.floor(255);
+        b = Math.floor(224 + f*31);
+      } else if (intensity > 0.15) {
+        // amber to teal
+        const f = (intensity-0.15)/0.35;
+        r = Math.floor(255*(1-f));
+        g = Math.floor(179*(1-f) + 255*f);
+        b = Math.floor(0   + f*224);
+      } else {
+        // dim red to amber
+        const f = intensity/0.15;
+        r = Math.floor(80 + f*175);
+        g = Math.floor(f*179);
+        b = 0;
+      }
+
+      const alpha = Math.min(1, intensity*2.5);
+      ctx.fillStyle = `rgba(${r},${g},${b},${alpha*0.85})`;
+      ctx.fillRect(px, py, step, step);
+    }
+  }
+
+  // Animated wavefronts over the field
+  const waveSpeed = pixPerKm * 0.8; // px/s
+  const wavePeriod = 1.8;
+  for (let k=0; k<8; k++) {
+    const age = ((t + k*wavePeriod/8) % wavePeriod);
+    const r   = age * waveSpeed;
+    if (r < 2) continue;
+
+    // Beam angle
+    const beamAngle = theta0; // radians from broadside (vertical)
+    const opacity = Math.max(0, 0.35*(1 - age/wavePeriod));
+
+    // Draw arc sector around beam direction
+    const beamSpread = Math.PI/(Math.max(N,2)); // approx HPBW
+    const startAngle = beamAngle - beamSpread - Math.PI/2;
+    const endAngle   = beamAngle + beamSpread - Math.PI/2;
+
+    ctx.beginPath();
+    ctx.arc(arrX, H/2, r, startAngle-0.3, endAngle+0.3);
+    ctx.strokeStyle = `rgba(0,255,224,${opacity})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // ── Friis equation overlay box (top-left of right panel) ──
+  const noiseFloorVal = -174 + 10*Math.log10(20e6) + 7;
+  const agDb = lin2db(N);
+  const fspl1km = friisLoss(fc, 1000);
+  const pr1km = (pt + 3 + gr + agDb - fspl1km);
+  const snr1km = pr1km - noiseFloorVal;
+
+  const eqX = arrX + 6, eqY = 10;
+  ctx.fillStyle = 'rgba(4,8,15,0.82)';
+  ctx.strokeStyle = '#1e3050';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.roundRect(eqX-4, eqY-4, 232, 74, 3);
+  ctx.fill(); ctx.stroke();
+
+  ctx.font = '9px Space Mono,monospace'; ctx.textAlign = 'left';
+  ctx.fillStyle = '#4a7090';
+  ctx.fillText('Friis Transmission Equation', eqX, eqY+8);
+  ctx.fillStyle = '#c8d8e8';
+  ctx.fillText('Pr = Pt·Gt·Gr·(λ/4πd)²', eqX, eqY+22);
+  ctx.fillStyle = '#4a7090';
+  ctx.fillText('FSPL = 20log(d)+20log(fc)−147.55', eqX, eqY+34);
+  // live computed values
+  ctx.fillStyle = '#ffb300';
+  ctx.fillText(`FSPL@1km = ${fspl1km.toFixed(1)} dB`, eqX, eqY+48);
+  const prCol = pr1km < noiseFloorVal+5 ? '#ff3d5a' : pr1km < noiseFloorVal+15 ? '#ffb300' : '#00ffe0';
+  ctx.fillStyle = prCol;
+  ctx.fillText(`Pr@1km   = ${pr1km.toFixed(1)} dBm`, eqX, eqY+62);
+
+  // ── Distance rings + power readouts on ALL rings ──
+  [0.5, 1.0, 1.5, 2.0, 2.5, 3.0].forEach(km => {
+    const rx = arrX + km * pixPerKm;
+    if (rx > W-5) return;
+
+    // Ring line
+    ctx.strokeStyle = '#0d2030';
+    ctx.lineWidth = 0.6;
+    ctx.setLineDash([3,5]);
+    ctx.beginPath();
+    ctx.moveTo(rx, 8); ctx.lineTo(rx, H-18);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Distance label bottom
+    ctx.fillStyle = '#2a4060';
+    ctx.font = '8px Space Mono,monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(km+'km', rx, H-4);
+
+    // Compute Friis power at this ring
+    const fsplRing = friisLoss(fc, km * 1000);
+    const prRing   = pt + 3 + gr + agDb - fsplRing;
+    const snrRing  = prRing - noiseFloorVal;
+
+    // Color by SNR
+    let ringCol;
+    if (snrRing > 20)      ringCol = '#00ffe0';
+    else if (snrRing > 5)  ringCol = '#ffb300';
+    else                   ringCol = '#ff3d5a';
+
+    // Power readout box
+    const boxW = 72, boxH = 30;
+    const boxX = rx - boxW/2;
+    const boxY = H/2 - 52;
+    ctx.fillStyle = 'rgba(4,8,15,0.85)';
+    ctx.strokeStyle = ringCol + '88';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, boxW, boxH, 2);
+    ctx.fill(); ctx.stroke();
+
+    ctx.font = '9px Space Mono,monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = ringCol;
+    ctx.fillText(`${prRing.toFixed(0)} dBm`, rx, boxY+11);
+    ctx.fillStyle = '#4a7090';
+    ctx.fillText(`SNR ${snrRing.toFixed(0)} dB`, rx, boxY+23);
+
+    // Connector line from box to ring
+    ctx.strokeStyle = ringCol + '44';
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(rx, boxY+boxH);
+    ctx.lineTo(rx, H/2 - 8);
+    ctx.stroke();
+  });
+
+  // Beam direction annotation
+  const beamEndX = arrX + (W-arrX-20)*0.7;
+  const beamEndY = H/2 + Math.tan(theta0)*(beamEndX-arrX);
+  if (beamEndY > 10 && beamEndY < H-10) {
+    ctx.strokeStyle = '#ffb30040';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6,5]);
+    ctx.beginPath();
+    ctx.moveTo(arrX, H/2);
+    ctx.lineTo(beamEndX, beamEndY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#ffb300';
+    ctx.font = '9px Space Mono,monospace';
+    ctx.textAlign = 'left';
+    const labelX = Math.min(beamEndX+4, W-80);
+    ctx.fillText('θ₀='+(Math.round(theta0*180/Math.PI))+'°', labelX, beamEndY-4);
+  }
+
+  // Array element strip
+  const strip = 28;
+  ctx.fillStyle = '#060d18';
+  ctx.fillRect(0,0,strip,H);
+  ctx.strokeStyle = '#0a1a28';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(strip,0); ctx.lineTo(strip,H); ctx.stroke();
+
+  const es = Math.min(32, (H-40)/(N+1));
+  const ey0 = H/2 - (N-1)*es/2;
+  for (let n=0; n<N; n++) {
+    const ey = ey0 + n*es;
+    ctx.fillStyle = '#00ffe0';
+    ctx.fillRect(strip-6, ey-3, 6, 6);
+    // pulsing dot
+    const pulsePhase = ((t*1.5 + n*0.15) % 1);
+    const pulseR = 2 + pulsePhase*4;
+    const pulseA = 0.6*(1-pulsePhase);
+    ctx.beginPath();
+    ctx.arc(strip-3, ey, pulseR, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(0,255,224,${pulseA})`;
+    ctx.fill();
+  }
+
+  // Color scale legend
+  const lgX = W-16, lgY = 30, lgH = H-80;
+  const grad = ctx.createLinearGradient(0, lgY, 0, lgY+lgH);
+  grad.addColorStop(0,   'rgba(255,255,255,0.9)');
+  grad.addColorStop(0.3, 'rgba(0,255,224,0.9)');
+  grad.addColorStop(0.6, 'rgba(255,179,0,0.9)');
+  grad.addColorStop(1,   'rgba(80,0,0,0.6)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(lgX-8, lgY, 8, lgH);
+  ctx.strokeStyle = '#1a3050';
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(lgX-8, lgY, 8, lgH);
+  ctx.fillStyle = '#2a5070'; ctx.font='8px Space Mono,monospace'; ctx.textAlign='right';
+  ctx.fillText('High', lgX-12, lgY+8);
+  ctx.fillText('Low',  lgX-12, lgY+lgH);
+}
+
+// ═══════════════════════════════
+//  METRICS
+// ═══════════════════════════════
+function updateMetrics() {
+  const p = getParams();
+  const {N, theta0, fc, pt, gr} = p;
+  const dl = 0.5;
+
+  const ag = lin2db(N);
+  const fspl = friisLoss(fc, 1000);
+  const pr = pt + 3 + gr + ag - fspl;
+  const noiseFloor = -174 + 10*Math.log10(20e6) + 7;
+
+  // HPBW approx
+  const hpbw = (0.886 / (N * dl * Math.cos(theta0))) * 180/Math.PI;
+
+  // Lambda
+  const lambda = (3e8 / (fc*1e9) * 100).toFixed(1); // cm
+
+  // Phase shift per element
+  const psi = -(360 * dl * Math.sin(theta0)).toFixed(1);
+
+  document.getElementById('mAG').textContent    = ag.toFixed(1)+' dB';
+  document.getElementById('mFSPL').textContent  = fspl.toFixed(1)+' dB';
+
+  const prEl = document.getElementById('mPR');
+  prEl.textContent = pr.toFixed(1)+' dBm';
+  prEl.className = 'mcard-val' + (pr < noiseFloor+5 ? ' bad' : pr < noiseFloor+15 ? ' warn' : '');
+
+  const snr = pr - noiseFloor;
+  const snrEl = document.getElementById('mSNR');
+  snrEl.textContent = snr.toFixed(1)+' dB';
+  snrEl.className = 'mcard-val' + (snr < 5 ? ' bad' : snr < 15 ? ' warn' : '');
+
+  document.getElementById('mNF').textContent    = noiseFloor.toFixed(1)+' dBm';
+  document.getElementById('mHPBW').textContent   = hpbw.toFixed(1)+'°';
+  document.getElementById('mLambda').textContent = lambda+' cm';
+  document.getElementById('mPsi').textContent    = psi+'°';
+}
+
+// ═══════════════════════════════
+//  ANIMATION LOOP
+// ═══════════════════════════════
+let lastTime = null;
+
+function frame(ts) {
+  if (!lastTime) lastTime = ts;
+  const dt = (ts - lastTime) / 1000;
+  lastTime = ts;
+  t += dt;
+
+  drawLeft(t);
+  drawRight(t);
+  updateMetrics();
+
+  if (animating) raf = requestAnimationFrame(frame);
+}
+
+function toggleAnim() {
+  animating = !animating;
+  const btn = document.getElementById('btnAnim');
+  if (animating) {
+    btn.textContent = '⏸ Pause';
+    btn.classList.add('active');
+    lastTime = null;
+    raf = requestAnimationFrame(frame);
+  } else {
+    btn.textContent = '▶ Play';
+    btn.classList.remove('active');
+    cancelAnimationFrame(raf);
+  }
+}
+
+// ═══════════════════════════════
+//  SLIDER BINDINGS
+// ═══════════════════════════════
+function bindSlider(id, valId, fmt) {
+  const el = document.getElementById(id);
+  const vl = document.getElementById(valId);
+  el.addEventListener('input', () => { vl.textContent = fmt(el.value); });
+}
+bindSlider('sN',     'vN',     v => v);
+bindSlider('sTheta', 'vTheta', v => v+'°');
+bindSlider('sFC',    'vFC',    v => parseFloat(v).toFixed(1)+' GHz');
+bindSlider('sPt',    'vPt',    v => v+' dBm');
+bindSlider('sGr',    'vGr',    v => v+' dBi');
+
+// ═══════════════════════════════
+//  START
+// ═══════════════════════════════
+window.addEventListener('load', () => {
+  requestAnimationFrame(frame);
+});
+window.addEventListener('resize', () => {
+  // force redraw
+});
+</script>
+</body>
+</html>
